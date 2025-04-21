@@ -2,18 +2,33 @@ from flask import Flask, request
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 # from config import CREDENTIALS_FILE,GOOGLE_SHEET_NAME
-import os 
-CREDENTIALS_FILE   = os.getenv("CREDENTIALS_FILE", "creditional.json")
-GOOGLE_SHEET_NAME  = os.getenv("GOOGLE_SHEET_NAME", "Cust_Information")
+import os,json
+
+
 
 
 app = Flask(__name__)
 # GOOGLE_SHEET_NAME = "Cust_Information"  # Your Google Sheet name
-#s
+            
+
+def write_credentials_file():
+    creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
+    if creds_json:
+        with open("credentials.json", "w") as f:
+            json.dump(json.loads(creds_json), f)
+
+write_credentials_file()
+
+CREDENTIALS_FILE   = "credentials.json"
+GOOGLE_SHEET_NAME  = os.getenv("GOOGLE_SHEET_NAME", "Cust_Information")
+
+app = Flask(__name__)
+
 def get_gsheet_client():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     creds = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, scope)
     return gspread.authorize(creds)
+
 
 def update_google_sheet(customer_data):
     client = get_gsheet_client()
@@ -35,7 +50,6 @@ def update_google_sheet(customer_data):
     #test
     sheet.append_row(new_row)
     print(f"✅ Inserted new customer {customer_data['id']}")
-
 def delete_customer_from_sheet(customer_id):
     client = get_gsheet_client()
     sheet = client.open(GOOGLE_SHEET_NAME).sheet1
