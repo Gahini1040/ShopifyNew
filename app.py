@@ -62,18 +62,24 @@ def index():
 @app.route("/webhook/customer/update", methods=["POST"])
 def customer_create_or_update():
     data = request.get_json()
+    print("📥 Incoming customer create/update webhook:", data)
     if data and "id" in data:
         update_google_sheet(data)
         return "Customer processed", 200
+    print("❌ Invalid data received.")
     return "Invalid data", 400
+
 
 @app.route("/webhook/customer/delete", methods=["POST"])
 def customer_delete():
     data = request.get_json()
+    print("📥 Incoming customer delete webhook:", data)
     if data and "id" in data:
         delete_customer_from_sheet(data["id"])
         return "Customer deleted", 200
+    print("❌ Invalid delete webhook payload.")
     return "Invalid data", 400
+
 
 if __name__ == "__main__":
     # app.run(port=5000)
