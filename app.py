@@ -19,7 +19,7 @@ write_credentials_file()
 
 # Read secrets from environment
 CREDENTIALS_FILE   = "creditional.json"
-GOOGLE_SHEET_NAME  = os.getenv("GOOGLE_SHEET_NAME", "Cust_Information")
+GOOGLE_SHEET_NAME  = os.getenv("GOOGLE_SHEET_NAME", "shopifycustomerlist")
 GOOGLE_SHEET_ID    = os.getenv("GOOGLE_SHEET_ID")
 SHOP_URL           = os.getenv("SHOP_URL")
 API_VERSION        = os.getenv("API_VERSION")
@@ -29,7 +29,8 @@ ACCESS_TOKEN       = os.getenv("ACCESS_TOKEN")
 def flatten_json(y, parent_key='', sep='.'):
     items = []
     if isinstance(y, list):
-        if y and isinstance(y[0], dict):  # Use first item of list
+        # Process only the first item in the list, if it's a dict
+        if y and isinstance(y[0], dict):
             y = y[0]
         else:
             return {parent_key: y}
@@ -62,15 +63,28 @@ def update_google_sheet(customer_data):
     headers = sheet.row_values(1)
     print("📋 Sheet headers:", headers)
 
-    new_row = [customer_data.get(col, "") for col in headers]
-    print("➕ New row to insert/update:", new_row)
+    # Flatten customer data
+    flat_data = flatten_json(customer_data)
+    print("📦 Flattened data:", flat_data)
 
+    # Check if all columns exist in headers, if not, add them
+    for key in flat_data.keys():
+        if key not in headers:
+            headers.append(key)
+            sheet.update('A1', [headers])  # Update the header row
+
+    # Create a new row based on the flattened data
+    new_row = [flat_data.get(col, "") for col in headers]
+    print("🆕 New row to insert/update:", new_row)
+
+    # Check if this customer already exists in the sheet, if so, update it
     for idx, row in enumerate(all_data, start=2):
         if str(row.get("id")) == str(customer_data["id"]):
             sheet.update(f"A{idx}", [new_row])
             print(f"✅ Updated customer {customer_data['id']}")
             return
 
+    # If the customer doesn't exist, append a new row
     sheet.append_row(new_row)
     print(f"✅ Inserted new customer {customer_data['id']}")
 
@@ -100,9 +114,7 @@ def customer_create_or_update():
     data = request.get_json()
     print("📥 Incoming customer create/update webhook:", json.dumps(data, indent=2))
     if data and "id" in data:
-        flat_data = flatten_json(data)
-        print("📦 Flattened data:", json.dumps(flat_data, indent=2))
-        update_google_sheet(flat_data)
+        update_google_sheet(data)
         return "Customer processed", 200
     print("❌ Invalid data received.")
     return "Invalid data", 400
