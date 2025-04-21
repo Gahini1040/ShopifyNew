@@ -32,6 +32,7 @@ def update_google_sheet(customer_data):
             return
 
     # If customer not found, insert new
+    #test
     sheet.append_row(new_row)
     print(f"✅ Inserted new customer {customer_data['id']}")
 
