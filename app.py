@@ -27,7 +27,7 @@ def flatten_json(y, parent_key='', sep='.'):
     items = []
     if isinstance(y, list):
         if y and isinstance(y[0], dict):
-            y = y[0]  # Flatten first dict in list
+            y = y[0]  # Flatten only the first object of the list
         else:
             return {parent_key: json.dumps(y)}  # Save raw list
     for k, v in y.items():
@@ -57,19 +57,18 @@ def update_google_sheet(customer_data):
     headers = all_rows[0] if all_rows else []
     updated = False
 
-    # Add any new columns (headers)
+    # Add new headers if needed
     for key in flat:
         if key not in headers:
             headers.append(key)
+
     if not all_rows:
         sheet.append_row(headers)
     elif headers != all_rows[0]:
         sheet.update("A1", [headers])
 
-    # New row values (aligned with headers)
     new_row = [str(flat.get(col, "")) for col in headers]
 
-    # Check if customer already exists
     for idx, row in enumerate(all_rows[1:], start=2):
         if row and row[headers.index("id")] == str(customer_data["id"]):
             sheet.update(f"A{idx}", [new_row])
@@ -104,7 +103,6 @@ def customer_create_or_update():
     data = request.get_json()
     print("📥 Received customer webhook:", json.dumps(data, indent=2))
 
-    # Support webhook payloads that include { "customers": [ ... ] }
     if "customers" in data and isinstance(data["customers"], list):
         for customer in data["customers"]:
             update_google_sheet(customer)
