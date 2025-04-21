@@ -11,13 +11,13 @@ app = Flask(__name__)
 def write_credentials_file():
     creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
     if creds_json:
-        with open("credentials.json", "w") as f:
+        with open("creditional.json", "w") as f:
             json.dump(json.loads(creds_json), f)
 
 write_credentials_file()
 
 # Read secrets from environment
-CREDENTIALS_FILE   = "credentials.json"
+CREDENTIALS_FILE   = "creditional.json"
 GOOGLE_SHEET_NAME  = os.getenv("GOOGLE_SHEET_NAME", "Cust_Information")
 GOOGLE_SHEET_ID    = os.getenv("GOOGLE_SHEET_ID")
 SHOP_URL           = os.getenv("SHOP_URL")
