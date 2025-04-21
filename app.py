@@ -1,9 +1,10 @@
 from flask import Flask, request
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-import os,json
-
+import os
+import json
 from dotenv import load_dotenv
+
 load_dotenv()
 app = Flask(__name__)
 
@@ -24,29 +25,64 @@ SHOP_URL           = os.getenv("SHOP_URL")
 API_VERSION        = os.getenv("API_VERSION")
 ACCESS_TOKEN       = os.getenv("ACCESS_TOKEN")
 
+# Flatten nested JSON
+def flatten_json(y, parent_key='', sep='.'):
+    items = []
+    if isinstance(y, list):
+        if y and isinstance(y[0], dict):  # Use first item of list
+            y = y[0]
+        else:
+            return {parent_key: y}
+    for k, v in y.items():
+        new_key = f"{parent_key}{sep}{k}" if parent_key else k
+        if isinstance(v, dict):
+            items.extend(flatten_json(v, new_key, sep=sep).items())
+        else:
+            items.append((new_key, v))
+    return dict(items)
+
+# Google Sheet connection
 def get_gsheet_client():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     creds = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, scope)
     return gspread.authorize(creds)
 
+# Update or append row in Google Sheet
 def update_google_sheet(customer_data):
+    print("📝 Updating Google Sheet with data:", customer_data)
     client = get_gsheet_client()
-    sheet = client.open(GOOGLE_SHEET_NAME).sheet1
+    
+    # Open sheet by ID or name
+    if GOOGLE_SHEET_ID:
+        sheet = client.open_by_key(GOOGLE_SHEET_ID).sheet1
+    else:
+        sheet = client.open(GOOGLE_SHEET_NAME).sheet1
+    
     all_data = sheet.get_all_records()
     headers = sheet.row_values(1)
+    print("📋 Sheet headers:", headers)
+
     new_row = [customer_data.get(col, "") for col in headers]
+    print("➕ New row to insert/update:", new_row)
 
     for idx, row in enumerate(all_data, start=2):
         if str(row.get("id")) == str(customer_data["id"]):
             sheet.update(f"A{idx}", [new_row])
             print(f"✅ Updated customer {customer_data['id']}")
             return
+
     sheet.append_row(new_row)
     print(f"✅ Inserted new customer {customer_data['id']}")
 
+# Delete row in Google Sheet
 def delete_customer_from_sheet(customer_id):
     client = get_gsheet_client()
-    sheet = client.open(GOOGLE_SHEET_NAME).sheet1
+    
+    if GOOGLE_SHEET_ID:
+        sheet = client.open_by_key(GOOGLE_SHEET_ID).sheet1
+    else:
+        sheet = client.open(GOOGLE_SHEET_NAME).sheet1
+
     all_data = sheet.get_all_records()
     for idx, row in enumerate(all_data, start=2):
         if str(row.get("id")) == str(customer_id):
@@ -62,26 +98,25 @@ def index():
 @app.route("/webhook/customer/update", methods=["POST"])
 def customer_create_or_update():
     data = request.get_json()
-    print("📥 Incoming customer create/update webhook:", data)
+    print("📥 Incoming customer create/update webhook:", json.dumps(data, indent=2))
     if data and "id" in data:
-        update_google_sheet(data)
+        flat_data = flatten_json(data)
+        print("📦 Flattened data:", json.dumps(flat_data, indent=2))
+        update_google_sheet(flat_data)
         return "Customer processed", 200
     print("❌ Invalid data received.")
     return "Invalid data", 400
 
-
 @app.route("/webhook/customer/delete", methods=["POST"])
 def customer_delete():
     data = request.get_json()
-    print("📥 Incoming customer delete webhook:", data)
+    print("📥 Incoming customer delete webhook:", json.dumps(data, indent=2))
     if data and "id" in data:
         delete_customer_from_sheet(data["id"])
         return "Customer deleted", 200
     print("❌ Invalid delete webhook payload.")
     return "Invalid data", 400
 
-
 if __name__ == "__main__":
-    # app.run(port=5000)
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
