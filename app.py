@@ -9,7 +9,7 @@ GOOGLE_SHEET_NAME  = os.getenv("GOOGLE_SHEET_NAME", "Cust_Information")
 
 app = Flask(__name__)
 # GOOGLE_SHEET_NAME = "Cust_Information"  # Your Google Sheet name
-#testing
+#s
 def get_gsheet_client():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     creds = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, scope)
