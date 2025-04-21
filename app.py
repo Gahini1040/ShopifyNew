@@ -5,7 +5,6 @@ import os,json
 
 from dotenv import load_dotenv
 load_dotenv()
-
 app = Flask(__name__)
 
 # Write credentials JSON from env to file (at runtime)
