@@ -64,7 +64,7 @@ def update_google_sheet(customer_data):
     # Iterate over rows, find matching customer ID and update the row
     for idx, row in enumerate(all_rows[1:], start=2):
         if row and row[headers.index("id")] == str(customer_data["id"]):
-            sheet.update(f"A{idx}:Z{idx}", [new_row])  # Specify the range from A to Z or end column
+            sheet.update(f"A{idx}:Z{idx}", [new_row])  # Update row with the correct range
             print(f"✅ Updated customer ID {customer_data['id']}")
             updated = True
             break
