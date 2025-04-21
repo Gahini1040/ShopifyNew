@@ -1,16 +1,14 @@
 from flask import Flask, request
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-# from config import CREDENTIALS_FILE,GOOGLE_SHEET_NAME
 import os,json
 
-
-
+from dotenv import load_dotenv
+load_dotenv()
 
 app = Flask(__name__)
-# GOOGLE_SHEET_NAME = "Cust_Information"  # Your Google Sheet name
-            
 
+# Write credentials JSON from env to file (at runtime)
 def write_credentials_file():
     creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
     if creds_json:
@@ -19,37 +17,34 @@ def write_credentials_file():
 
 write_credentials_file()
 
+# Read secrets from environment
 CREDENTIALS_FILE   = "credentials.json"
 GOOGLE_SHEET_NAME  = os.getenv("GOOGLE_SHEET_NAME", "Cust_Information")
-
-app = Flask(__name__)
+GOOGLE_SHEET_ID    = os.getenv("GOOGLE_SHEET_ID")
+SHOP_URL           = os.getenv("SHOP_URL")
+API_VERSION        = os.getenv("API_VERSION")
+ACCESS_TOKEN       = os.getenv("ACCESS_TOKEN")
 
 def get_gsheet_client():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     creds = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, scope)
     return gspread.authorize(creds)
 
-
 def update_google_sheet(customer_data):
     client = get_gsheet_client()
     sheet = client.open(GOOGLE_SHEET_NAME).sheet1
     all_data = sheet.get_all_records()
     headers = sheet.row_values(1)
-
-    # Prepare new row with existing headers
     new_row = [customer_data.get(col, "") for col in headers]
 
-    # Check if customer already exists
-    for idx, row in enumerate(all_data, start=2):  # start=2 because headers are in row 1
+    for idx, row in enumerate(all_data, start=2):
         if str(row.get("id")) == str(customer_data["id"]):
             sheet.update(f"A{idx}", [new_row])
             print(f"✅ Updated customer {customer_data['id']}")
             return
-
-    # If customer not found, insert new
-    #test
     sheet.append_row(new_row)
     print(f"✅ Inserted new customer {customer_data['id']}")
+
 def delete_customer_from_sheet(customer_id):
     client = get_gsheet_client()
     sheet = client.open(GOOGLE_SHEET_NAME).sheet1
