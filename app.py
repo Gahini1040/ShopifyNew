@@ -1,7 +1,11 @@
 from flask import Flask, request
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-from config import CREDENTIALS_FILE,GOOGLE_SHEET_NAME
+# from config import CREDENTIALS_FILE,GOOGLE_SHEET_NAME
+import os
+CREDENTIALS_FILE   = os.getenv("CREDENTIALS_FILE", "creditional.json")
+GOOGLE_SHEET_NAME  = os.getenv("GOOGLE_SHEET_NAME", "Cust_Information")
+
 
 app = Flask(__name__)
 # GOOGLE_SHEET_NAME = "Cust_Information"  # Your Google Sheet name
