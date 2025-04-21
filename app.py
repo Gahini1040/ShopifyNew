@@ -38,6 +38,10 @@ def flatten_json(y, parent_key='', sep='.'):
         new_key = f"{parent_key}{sep}{k}" if parent_key else k
         if isinstance(v, dict):
             items.extend(flatten_json(v, new_key, sep=sep).items())
+        elif isinstance(v, list) and v and isinstance(v[0], dict):
+            # Flatten nested lists of dictionaries (like addresses)
+            for idx, item in enumerate(v):
+                items.extend(flatten_json(item, f"{new_key}_{idx + 1}", sep=sep).items())
         else:
             items.append((new_key, v))
     return dict(items)
@@ -103,10 +107,6 @@ def delete_customer_from_sheet(customer_id):
             sheet.delete_rows(idx)
             print(f"🗑️ Deleted customer {customer_id}")
             return
-
-@app.route("/")
-def index():
-    return "🚀 Flask app is running!"
 
 @app.route("/webhook/customer/create", methods=["POST"])
 @app.route("/webhook/customer/update", methods=["POST"])
