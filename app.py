@@ -18,27 +18,19 @@ def write_credentials_file():
 write_credentials_file()
 
 # --- Env Vars ---
-CREDENTIALS_FILE   = "creditional.json"
-GOOGLE_SHEET_NAME  = os.getenv("GOOGLE_SHEET_NAME", "shopifycustomerlist")
-GOOGLE_SHEET_ID    = os.getenv("GOOGLE_SHEET_ID")
+CREDENTIALS_FILE = "creditional.json"
+GOOGLE_SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME", "shopifycustomerlist")
+GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
 
-# --- Flatten nested JSON ---
-def flatten_json(y, parent_key='', sep='.'):
-    items = []
-    if isinstance(y, list):
-        if y and isinstance(y[0], dict):
-            y = y[0]  # Flatten only the first object of the list
+# --- Convert to column: raw JSON for nested, plain for top-level ---
+def convert_for_sheet(data):
+    flat = {}
+    for key, value in data.items():
+        if isinstance(value, (dict, list)):
+            flat[key] = json.dumps(value, ensure_ascii=False)
         else:
-            return {parent_key: json.dumps(y)}  # Save raw list
-    for k, v in y.items():
-        new_key = f"{parent_key}{sep}{k}" if parent_key else k
-        if isinstance(v, dict):
-            items.extend(flatten_json(v, new_key, sep=sep).items())
-        elif isinstance(v, list):
-            items.append((new_key, json.dumps(v)))  # Save list as JSON string
-        else:
-            items.append((new_key, v))
-    return dict(items)
+            flat[key] = value
+    return flat
 
 # --- Google Sheet connection ---
 def get_gsheet_client():
@@ -46,18 +38,18 @@ def get_gsheet_client():
     creds = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, scope)
     return gspread.authorize(creds)
 
-# --- Insert or update customer row ---
+# --- Insert or update row ---
 def update_google_sheet(customer_data):
     print("📝 Updating Google Sheet...")
     client = get_gsheet_client()
     sheet = client.open_by_key(GOOGLE_SHEET_ID).sheet1 if GOOGLE_SHEET_ID else client.open(GOOGLE_SHEET_NAME).sheet1
 
     all_rows = sheet.get_all_values()
-    flat = flatten_json(customer_data)
     headers = all_rows[0] if all_rows else []
+    flat = convert_for_sheet(customer_data)
     updated = False
 
-    # Add new headers if needed
+    # Add new columns if needed
     for key in flat:
         if key not in headers:
             headers.append(key)
@@ -80,7 +72,7 @@ def update_google_sheet(customer_data):
         sheet.append_row(new_row)
         print(f"✅ Inserted new customer ID {customer_data['id']}")
 
-# --- Delete customer from sheet ---
+# --- Delete from sheet ---
 def delete_customer_from_sheet(customer_id):
     client = get_gsheet_client()
     sheet = client.open_by_key(GOOGLE_SHEET_ID).sheet1 if GOOGLE_SHEET_ID else client.open(GOOGLE_SHEET_NAME).sheet1
@@ -123,7 +115,7 @@ def customer_delete():
         return "Customer deleted", 200
     return "❌ Invalid delete payload", 400
 
-# --- Main ---
+# --- Run App ---
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
