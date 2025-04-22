@@ -46,14 +46,14 @@ def get_gsheet_client():
     creds = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, scope)
     return gspread.authorize(creds)
 
-# --- Fetch full customer data ---
-def fetch_full_customer_data(customer_id):
-    url = f"https://{SHOPIFY_API_KEY}:{SHOPIFY_API_PASSWORD}@{SHOPIFY_STORE_URL}/admin/api/2025-04/customers/{customer_id}.json"
+# --- Fetch full data from Shopify ---
+def fetch_from_shopify(resource, resource_id):
+    url = f"https://{SHOPIFY_API_KEY}:{SHOPIFY_API_PASSWORD}@{SHOPIFY_STORE_URL}/admin/api/2025-04/{resource}/{resource_id}.json"
     response = requests.get(url)
     if response.status_code == 200:
-        return response.json().get("customer")
+        return response.json().get(resource[:-1])  # "customers" -> "customer"
     else:
-        print(f"❌ Failed to fetch full customer data: {response.status_code}")
+        print(f"❌ Failed to fetch {resource[:-1]} {resource_id}: {response.status_code}")
         return None
 
 # --- Insert or update row ---
@@ -141,15 +141,8 @@ def customer_create_or_update():
     data = request.get_json()
     print("📥 Customer webhook received:", json.dumps(data, indent=2))
 
-    if "customers" in data and isinstance(data["customers"], list):
-        for customer in data["customers"]:
-            full_data = fetch_full_customer_data(customer["id"])
-            if full_data:
-                update_google_sheet(full_data, sheet_type="customers")
-        return "Multiple customers processed", 200
-
     if "id" in data:
-        full_data = fetch_full_customer_data(data["id"])
+        full_data = fetch_from_shopify("customers", data["id"])
         if full_data:
             update_google_sheet(full_data, sheet_type="customers")
             return "Customer processed", 200
@@ -172,9 +165,11 @@ def product_create_or_update():
     data = request.get_json()
     print("📥 Product webhook received:", json.dumps(data, indent=2))
 
-    if "product" in data:
-        update_google_sheet(data["product"], sheet_type="products")
-        return "Product processed", 200
+    if "id" in data:
+        full_data = fetch_from_shopify("products", data["id"])
+        if full_data:
+            update_google_sheet(full_data, sheet_type="products")
+            return "Product processed", 200
 
     return "❌ Invalid product payload", 400
 
@@ -194,9 +189,11 @@ def order_create_or_update():
     data = request.get_json()
     print("📥 Order webhook received:", json.dumps(data, indent=2))
 
-    if "order" in data:
-        update_google_sheet(data["order"], sheet_type="orders")
-        return "Order processed", 200
+    if "id" in data:
+        full_data = fetch_from_shopify("orders", data["id"])
+        if full_data:
+            update_google_sheet(full_data, sheet_type="orders")
+            return "Order processed", 200
 
     return "❌ Invalid order payload", 400
 
@@ -212,4 +209,4 @@ def order_delete():
 # --- Run ---
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=port, debug=True)
