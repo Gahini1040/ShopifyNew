@@ -22,6 +22,8 @@ write_credentials_file()
 # --- Env Vars ---
 CREDENTIALS_FILE = "creditional.json"
 GOOGLE_SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME", "shopifycustomerlist")
+GOOGLE_ORDER_SHEET = os.getenv("GOOGLE_ORDER_SHEET", "shopifyorderlist")
+GOOGLE_PRODUCT_SHEET = os.getenv("GOOGLE_PRODUCT_SHEET", "shopifyproductlist")
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
 
 SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
@@ -46,7 +48,7 @@ def get_gsheet_client():
 
 # --- Fetch full customer data from Shopify ---
 def fetch_full_customer_data(customer_id):
-    url = f"https://{SHOPIFY_API_KEY}:{SHOPIFY_API_PASSWORD}@{SHOPIFY_STORE_URL}/admin/api/2025-04/customers/{customer_id}.json"
+    url = f"https://{SHOPIFY_API_KEY}:{SHOPIFY_API_PASSWORD}@{SHOPIFY_STORE_URL}/admin/api/2023-10/customers/{customer_id}.json"
     response = requests.get(url)
     if response.status_code == 200:
         return response.json().get("customer")
@@ -55,14 +57,21 @@ def fetch_full_customer_data(customer_id):
         return None
 
 # --- Insert or update row ---
-def update_google_sheet(customer_data):
-    print("📝 Updating Google Sheet...")
+def update_google_sheet(data, sheet_type="customers"):
+    print(f"📝 Updating Google Sheet for {sheet_type}...")
+
     client = get_gsheet_client()
-    sheet = client.open_by_key(GOOGLE_SHEET_ID).sheet1 if GOOGLE_SHEET_ID else client.open(GOOGLE_SHEET_NAME).sheet1
+    sheet_name = {
+        "customers": GOOGLE_SHEET_NAME,
+        "orders": GOOGLE_ORDER_SHEET,
+        "products": GOOGLE_PRODUCT_SHEET
+    }.get(sheet_type, GOOGLE_SHEET_NAME)
+
+    sheet = client.open_by_key(GOOGLE_SHEET_ID).worksheet(sheet_name) if GOOGLE_SHEET_ID else client.open(sheet_name).sheet1
 
     all_rows = sheet.get_all_values()
     headers = all_rows[0] if all_rows else []
-    flat = convert_for_sheet(customer_data)
+    flat = convert_for_sheet(data)
     updated = False
 
     for key in flat:
@@ -77,27 +86,33 @@ def update_google_sheet(customer_data):
     new_row = [str(flat.get(col, "")) for col in headers]
 
     for idx, row in enumerate(all_rows[1:], start=2):
-        if row and row[headers.index("id")] == str(customer_data["id"]):
+        if row and row[headers.index("id")] == str(data["id"]):
             end_col_letter = rowcol_to_a1(1, len(headers)).split("1")[0]
             sheet.update(f"A{idx}:{end_col_letter}{idx}", [new_row])
-            print(f"✅ Updated customer ID {customer_data['id']}")
+            print(f"✅ Updated {sheet_type} ID {data['id']}")
             updated = True
             break
 
     if not updated:
         sheet.append_row(new_row)
-        print(f"✅ Inserted new customer ID {customer_data['id']}")
+        print(f"✅ Inserted new {sheet_type} ID {data['id']}")
 
 # --- Delete from sheet ---
-def delete_customer_from_sheet(customer_id):
+def delete_from_sheet(record_id, sheet_type="customers"):
     client = get_gsheet_client()
-    sheet = client.open_by_key(GOOGLE_SHEET_ID).sheet1 if GOOGLE_SHEET_ID else client.open(GOOGLE_SHEET_NAME).sheet1
+    sheet_name = {
+        "customers": GOOGLE_SHEET_NAME,
+        "orders": GOOGLE_ORDER_SHEET,
+        "products": GOOGLE_PRODUCT_SHEET
+    }.get(sheet_type, GOOGLE_SHEET_NAME)
+
+    sheet = client.open_by_key(GOOGLE_SHEET_ID).worksheet(sheet_name) if GOOGLE_SHEET_ID else client.open(sheet_name).sheet1
     all_data = sheet.get_all_records()
 
     for idx, row in enumerate(all_data, start=2):
-        if str(row.get("id")) == str(customer_id):
+        if str(row.get("id")) == str(record_id):
             sheet.delete_rows(idx)
-            print(f"🗑️ Deleted customer {customer_id}")
+            print(f"🗑️ Deleted {sheet_type} {record_id}")
             return
 
 # --- Routes ---
@@ -105,36 +120,79 @@ def delete_customer_from_sheet(customer_id):
 def index():
     return "🚀 Flask app is running!"
 
+# --- Customer Webhooks ---
 @app.route("/webhook/customer/create", methods=["POST"])
 @app.route("/webhook/customer/update", methods=["POST"])
 def customer_create_or_update():
     data = request.get_json()
     print("📥 Received customer webhook:", json.dumps(data, indent=2))
 
-    # Handle multiple customers (bulk webhook)
     if "customers" in data and isinstance(data["customers"], list):
         for customer in data["customers"]:
             full_data = fetch_full_customer_data(customer["id"])
             if full_data:
-                update_google_sheet(full_data)
+                update_google_sheet(full_data, sheet_type="customers")
         return "Multiple customers processed", 200
 
-    # Handle single customer
     if "id" in data:
         full_data = fetch_full_customer_data(data["id"])
         if full_data:
-            update_google_sheet(full_data)
-            return "Customer processed (full data)", 200
+            update_google_sheet(full_data, sheet_type="customers")
+            return "Customer processed", 200
 
     return "❌ Invalid customer payload", 400
 
 @app.route("/webhook/customer/delete", methods=["POST"])
 def customer_delete():
     data = request.get_json()
-    print("📥 Received delete webhook:", json.dumps(data, indent=2))
+    print("📥 Received customer delete webhook:", json.dumps(data, indent=2))
     if data and "id" in data:
-        delete_customer_from_sheet(data["id"])
+        delete_from_sheet(data["id"], sheet_type="customers")
         return "Customer deleted", 200
+    return "❌ Invalid delete payload", 400
+
+# --- Order Webhooks ---
+@app.route("/webhook/order/create", methods=["POST"])
+@app.route("/webhook/order/update", methods=["POST"])
+def order_create_or_update():
+    data = request.get_json()
+    print("📥 Received order webhook:", json.dumps(data, indent=2))
+
+    if "id" in data:
+        update_google_sheet(data, sheet_type="orders")
+        return "Order processed", 200
+
+    return "❌ Invalid order payload", 400
+
+@app.route("/webhook/order/delete", methods=["POST"])
+def order_delete():
+    data = request.get_json()
+    print("📥 Received order delete webhook:", json.dumps(data, indent=2))
+    if data and "id" in data:
+        delete_from_sheet(data["id"], sheet_type="orders")
+        return "Order deleted", 200
+    return "❌ Invalid delete payload", 400
+
+# --- Product Webhooks ---
+@app.route("/webhook/product/create", methods=["POST"])
+@app.route("/webhook/product/update", methods=["POST"])
+def product_create_or_update():
+    data = request.get_json()
+    print("📥 Received product webhook:", json.dumps(data, indent=2))
+
+    if "id" in data:
+        update_google_sheet(data, sheet_type="products")
+        return "Product processed", 200
+
+    return "❌ Invalid product payload", 400
+
+@app.route("/webhook/product/delete", methods=["POST"])
+def product_delete():
+    data = request.get_json()
+    print("📥 Received product delete webhook:", json.dumps(data, indent=2))
+    if data and "id" in data:
+        delete_from_sheet(data["id"], sheet_type="products")
+        return "Product deleted", 200
     return "❌ Invalid delete payload", 400
 
 # --- Run App ---
