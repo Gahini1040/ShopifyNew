@@ -4,6 +4,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 import os
 import json
 from dotenv import load_dotenv
+from gspread.utils import rowcol_to_a1  # ✅ Needed for dynamic range update
 
 load_dotenv()
 app = Flask(__name__)
@@ -64,7 +65,8 @@ def update_google_sheet(customer_data):
     # Iterate over rows, find matching customer ID and update the row
     for idx, row in enumerate(all_rows[1:], start=2):
         if row and row[headers.index("id")] == str(customer_data["id"]):
-            sheet.update(f"A{idx}:Z{idx}", [new_row])  # Update row with the correct range
+            end_col_letter = rowcol_to_a1(1, len(headers)).split("1")[0]  # Convert to column letter like 'Z' or 'AB'
+            sheet.update(f"A{idx}:{end_col_letter}{idx}", [new_row])  # ✅ Dynamic column range
             print(f"✅ Updated customer ID {customer_data['id']}")
             updated = True
             break
