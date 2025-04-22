@@ -4,7 +4,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 import os
 import json
 from dotenv import load_dotenv
-from gspread.utils import rowcol_to_a1  # ✅ Needed for dynamic range update
+from gspread.utils import rowcol_to_a1
 
 load_dotenv()
 app = Flask(__name__)
@@ -23,14 +23,14 @@ CREDENTIALS_FILE = "creditional.json"
 GOOGLE_SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME", "shopifycustomerlist")
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
 
-# --- Convert to column: raw JSON for nested, plain for top-level ---
+# --- Convert nested fields to JSON strings ---
 def convert_for_sheet(data):
     flat = {}
     for key, value in data.items():
         if isinstance(value, (dict, list)):
             flat[key] = json.dumps(value, ensure_ascii=False)
         else:
-            flat[key] = value
+            flat[key] = value if value is not None else ""
     return flat
 
 # --- Google Sheet connection ---
@@ -50,23 +50,27 @@ def update_google_sheet(customer_data):
     flat = convert_for_sheet(customer_data)
     updated = False
 
-    # Add new columns if needed
+    # Add missing headers
     for key in flat:
         if key not in headers:
             headers.append(key)
 
+    # Update headers if new columns added
     if not all_rows:
         sheet.append_row(headers)
+        all_rows = [headers]
     elif headers != all_rows[0]:
         sheet.update("A1", [headers])
+        all_rows[0] = headers
 
+    # Build the row in header order
     new_row = [str(flat.get(col, "")) for col in headers]
 
-    # Iterate over rows, find matching customer ID and update the row
+    # Update existing row or append
     for idx, row in enumerate(all_rows[1:], start=2):
         if row and row[headers.index("id")] == str(customer_data["id"]):
-            end_col_letter = rowcol_to_a1(1, len(headers)).split("1")[0]  # Convert to column letter like 'Z' or 'AB'
-            sheet.update(f"A{idx}:{end_col_letter}{idx}", [new_row])  # ✅ Dynamic column range
+            end_col_letter = rowcol_to_a1(1, len(headers)).split("1")[0]
+            sheet.update(f"A{idx}:{end_col_letter}{idx}", [new_row])
             print(f"✅ Updated customer ID {customer_data['id']}")
             updated = True
             break
@@ -98,11 +102,13 @@ def customer_create_or_update():
     data = request.get_json()
     print("📥 Received customer webhook:", json.dumps(data, indent=2))
 
+    # If payload contains a list of customers (non-standard)
     if "customers" in data and isinstance(data["customers"], list):
         for customer in data["customers"]:
             update_google_sheet(customer)
         return "Multiple customers processed", 200
 
+    # Standard webhook: single customer object
     if "id" in data:
         update_google_sheet(data)
         return "Customer processed", 200
