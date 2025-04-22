@@ -6,138 +6,125 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from gspread.utils import rowcol_to_a1
 
-# ——— Load environment variables from .env ———
+# ——— Load .env vars ———
 load_dotenv()
 
-# ——— Flask setup ———
 app = Flask(__name__)
 
-# ——— Google Sheets credential setup ———
-# Expect your service‑account JSON in this env var
+# ——— Google Sheets creds ———
 creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
 if not creds_json:
-    raise RuntimeError("Missing GOOGLE_CREDENTIALS_JSON environment variable")
+    raise RuntimeError("Please set GOOGLE_CREDENTIALS_JSON in your environment")
 
 try:
     creds_dict = json.loads(creds_json)
 except json.JSONDecodeError:
     raise RuntimeError("GOOGLE_CREDENTIALS_JSON is not valid JSON")
 
-# Scopes for reading/writing Sheets & Drive
 SCOPES = ["https://spreadsheets.google.com/feeds",
           "https://www.googleapis.com/auth/drive"]
-
-# Create credentials and authorize
 credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPES)
 gc = gspread.authorize(credentials)
 
-# ——— Which sheet to use? ———
-SHEET_ID   = os.getenv("GOOGLE_SHEET_ID")
+# ——— Pick your sheet ———
+SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
 SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME", "gahinitest")
 
-if SHEET_ID:
-    sheet = gc.open_by_key(SHEET_ID).sheet1
-else:
-    sheet = gc.open(SHEET_NAME).sheet1
+sheet = (gc.open_by_key(SHEET_ID).sheet1
+         if SHEET_ID else
+         gc.open(SHEET_NAME).sheet1)
 
 # ——— Helpers ———
 def convert_for_sheet(data: dict) -> dict:
     """
-    Turn nested dicts/lists into JSON strings; leave primitives as-is.
+    Return a dict of { column_name: string_value } for every top‑level key.
+    Nested dicts/lists become JSON strings; primitives become str(v) or "" if None.
     """
     flat = {}
     for k, v in data.items():
         if isinstance(v, (dict, list)):
             flat[k] = json.dumps(v, ensure_ascii=False)
         else:
-            # Convert None -> "" and everything else to str
-            flat[k] = "" if v is None else v
+            flat[k] = "" if v is None else str(v)
     return flat
 
-def update_google_sheet(customer: dict):
-    """
-    Upsert a single customer row based on `id`.
-    """
+def upsert_customer_row(customer: dict):
     flat = convert_for_sheet(customer)
-    all_values = sheet.get_all_values()
-    headers = all_values[0] if all_values else []
 
-    # 1) Add any missing headers
-    for key in flat:
-        if key not in headers:
-            headers.append(key)
+    # 1) Read existing data
+    all_vals = sheet.get_all_values()
+    headers = all_vals[0] if all_vals else []
 
-    # 2) (Re)write header row if needed
-    if not all_values:
+    # 2) Add any missing headers
+    for col in flat:
+        if col not in headers:
+            headers.append(col)
+
+    # 3) Write or update header row
+    if not all_vals:
         sheet.append_row(headers)
-        all_values = [headers]
-    elif headers != all_values[0]:
+        all_vals = [headers]
+    elif headers != all_vals[0]:
         sheet.update("A1", [headers])
-        all_values[0] = headers
+        all_vals[0] = headers
 
-    # 3) Build the row in header order
-    row = [flat.get(col, "") for col in headers]
-    cust_id = str(flat.get("id", ""))
+    # 4) Build the row in header order
+    new_row = [flat.get(col, "") for col in headers]
+    cust_id = flat.get("id", "")
 
-    # 4) Try to find existing row with same ID and update
-    for idx, existing in enumerate(all_values[1:], start=2):
-        if existing and existing[0] == cust_id:
-            # Determine last column letter
+    # 5) Try to find existing row by matching the first column (“id”)
+    for idx, row in enumerate(all_vals[1:], start=2):
+        if row and row[0] == cust_id:
             end_col = rowcol_to_a1(1, len(headers)).split("1")[0]
-            sheet.update(f"A{idx}:{end_col}{idx}", [row])
-            print(f"✅ Updated customer {cust_id}")
+            sheet.update(f"A{idx}:{end_col}{idx}", [new_row])
+            print(f"✅ Updated row for customer {cust_id}")
             return
 
-    # 5) Otherwise append new row
-    sheet.append_row(row)
-    print(f"✅ Inserted customer {cust_id}")
+    # 6) Not found → append new row
+    sheet.append_row(new_row)
+    print(f"✅ Inserted row for customer {cust_id}")
 
-def delete_customer_from_sheet(customer_id):
-    """
-    Delete the row matching customer_id.
-    """
+def delete_customer_row(customer_id):
     records = sheet.get_all_records()
     for idx, rec in enumerate(records, start=2):
-        if str(rec.get("id")) == str(customer_id):
+        if str(rec.get("id", "")) == str(customer_id):
             sheet.delete_rows(idx)
-            print(f"🗑️ Deleted customer {customer_id}")
+            print(f"🗑️ Deleted row for customer {customer_id}")
             return
 
-# ——— Flask routes ———
+# ——— Flask endpoints ———
 
 @app.route("/")
-def index():
-    return "🚀 Shopify‑to‑GoogleSheet Webhook Receiver"
+def health():
+    return "🚀 Shopify‑to‑GoogleSheet running"
 
 @app.route("/webhook/customer/create", methods=["POST"])
 @app.route("/webhook/customer/update", methods=["POST"])
-def upsert_customer():
+def handle_upsert():
     payload = request.get_json(force=True)
     print("📥 Payload:", json.dumps(payload, indent=2))
 
-    # Bulk payload?
+    # Bulk array?
     if isinstance(payload.get("customers"), list):
         for cust in payload["customers"]:
-            update_google_sheet(cust)
-    # Single customer?
-    elif payload.get("id"):
-        update_google_sheet(payload)
+            upsert_customer_row(cust)
+    # Single object?
+    elif "id" in payload:
+        upsert_customer_row(payload)
     else:
         return "❌ Invalid payload", 400
 
-    return "✅ Success", 200
+    return "✅ OK", 200
 
 @app.route("/webhook/customer/delete", methods=["POST"])
-def remove_customer():
+def handle_delete():
     payload = request.get_json(force=True)
     cid = payload.get("id")
-    if cid:
-        delete_customer_from_sheet(cid)
-        return "✅ Deleted", 200
-    return "❌ Invalid delete payload", 400
+    if cid is None:
+        return "❌ Invalid delete payload", 400
+    delete_customer_row(cid)
+    return "✅ Deleted", 200
 
-# ——— Run the app ———
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
-    # debug=True will reload on changes; remove for production
     app.run(host="0.0.0.0", port=port, debug=True)
